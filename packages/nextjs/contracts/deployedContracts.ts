@@ -4,6 +4,271 @@
  */
 import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 
-const deployedContracts = {} as const;
+const deployedContracts = {
+  31337: {
+    YourContract: {
+      address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      abi: [
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              indexed: false,
+              internalType: "enum YourContract.GameResult",
+              name: "result",
+              type: "uint8",
+            },
+          ],
+          name: "GameCompleted",
+          type: "event",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "player1",
+              type: "address",
+            },
+            {
+              indexed: false,
+              internalType: "uint256",
+              name: "betAmount",
+              type: "uint256",
+            },
+          ],
+          name: "GameCreated",
+          type: "event",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "player2",
+              type: "address",
+            },
+          ],
+          name: "GameJoined",
+          type: "event",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "player",
+              type: "address",
+            },
+            {
+              indexed: false,
+              internalType: "enum YourContract.Move",
+              name: "move",
+              type: "uint8",
+            },
+          ],
+          name: "MoveMade",
+          type: "event",
+        },
+        {
+          inputs: [],
+          name: "MIN_BET",
+          outputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "betAmount",
+              type: "uint256",
+            },
+          ],
+          name: "createGame",
+          outputs: [],
+          stateMutability: "payable",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "gameCount",
+          outputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          name: "games",
+          outputs: [
+            {
+              internalType: "address",
+              name: "player1",
+              type: "address",
+            },
+            {
+              internalType: "address",
+              name: "player2",
+              type: "address",
+            },
+            {
+              internalType: "enum YourContract.GameState",
+              name: "state",
+              type: "uint8",
+            },
+            {
+              internalType: "enum YourContract.Move",
+              name: "player1Move",
+              type: "uint8",
+            },
+            {
+              internalType: "enum YourContract.Move",
+              name: "player2Move",
+              type: "uint8",
+            },
+            {
+              internalType: "enum YourContract.GameResult",
+              name: "result",
+              type: "uint8",
+            },
+            {
+              internalType: "uint256",
+              name: "betAmount",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+          ],
+          name: "getGame",
+          outputs: [
+            {
+              internalType: "address",
+              name: "player1",
+              type: "address",
+            },
+            {
+              internalType: "address",
+              name: "player2",
+              type: "address",
+            },
+            {
+              internalType: "enum YourContract.GameState",
+              name: "state",
+              type: "uint8",
+            },
+            {
+              internalType: "enum YourContract.Move",
+              name: "player1Move",
+              type: "uint8",
+            },
+            {
+              internalType: "enum YourContract.Move",
+              name: "player2Move",
+              type: "uint8",
+            },
+            {
+              internalType: "enum YourContract.GameResult",
+              name: "result",
+              type: "uint8",
+            },
+            {
+              internalType: "uint256",
+              name: "betAmount",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+          ],
+          name: "joinGame",
+          outputs: [],
+          stateMutability: "payable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              internalType: "enum YourContract.Move",
+              name: "move",
+              type: "uint8",
+            },
+          ],
+          name: "makeMove",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+      ],
+      inheritedFunctions: {},
+    },
+  },
+} as const;
 
 export default deployedContracts satisfies GenericContractsDeclaration;

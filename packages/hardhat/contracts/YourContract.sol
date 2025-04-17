@@ -4,75 +4,169 @@ pragma solidity >=0.8.0 <0.9.0;
 // Useful for debugging. Remove when deploying to a live network.
 import "hardhat/console.sol";
 
-// Use openzeppelin to inherit battle-tested implementations (ERC20, ERC721, etc)
-// import "@openzeppelin/contracts/access/Ownable.sol";
-
-/**
- * A smart contract that allows changing a state variable of the contract and tracking the changes
- * It also allows the owner to withdraw the Ether in the contract
- * @author BuidlGuidl
- */
 contract YourContract {
-    // State Variables
-    address public immutable owner;
-    string public greeting = "Building Unstoppable Apps!!!";
-    bool public premium = false;
-    uint256 public totalCounter = 0;
-    mapping(address => uint) public userGreetingCounter;
+    // Game states
+    enum GameState { WAITING, PLAYING, COMPLETED }
+    enum Move { NONE, ROCK, PAPER, SCISSORS }
+    enum GameResult { NONE, PLAYER1_WIN, PLAYER2_WIN, DRAW }
 
-    // Events: a way to emit log statements from smart contract that can be listened to by external parties
-    event GreetingChange(address indexed greetingSetter, string newGreeting, bool premium, uint256 value);
-
-    // Constructor: Called once on contract deployment
-    // Check packages/hardhat/deploy/00_deploy_your_contract.ts
-    constructor(address _owner) {
-        owner = _owner;
+    struct Game {
+        address player1;
+        address player2;
+        GameState state;
+        Move player1Move;
+        Move player2Move;
+        GameResult result;
+        uint256 betAmount;
     }
 
-    // Modifier: used to define a set of rules that must be met before or after a function is executed
-    // Check the withdraw() function
-    modifier isOwner() {
-        // msg.sender: predefined variable that represents address of the account that called the current function
-        require(msg.sender == owner, "Not the Owner");
+    // State Variables
+    mapping(uint256 => Game) public games;
+    uint256 public gameCount;
+    uint256 public constant MIN_BET = 0.001 ether;
+
+    // Events
+    event GameCreated(uint256 indexed gameId, address indexed player1, uint256 betAmount);
+    event GameJoined(uint256 indexed gameId, address indexed player2);
+    event MoveMade(uint256 indexed gameId, address indexed player, Move move);
+    event GameCompleted(uint256 indexed gameId, GameResult result);
+
+    // Modifiers
+    modifier gameExists(uint256 gameId) {
+        require(gameId < gameCount, "Game does not exist");
+        _;
+    }
+
+    modifier isPlayer(uint256 gameId) {
+        Game storage game = games[gameId];
+        require(msg.sender == game.player1 || msg.sender == game.player2, "Not a player in this game");
+        _;
+    }
+
+    modifier validMove(Move move) {
+        require(move == Move.ROCK || move == Move.PAPER || move == Move.SCISSORS, "Invalid move");
         _;
     }
 
     /**
-     * Function that allows anyone to change the state variable "greeting" of the contract and increase the counters
-     *
-     * @param _newGreeting (string memory) - new greeting to save on the contract
+     * @dev Creates a new game with a bet amount
+     * @param betAmount The amount of ETH to bet
      */
-    function setGreeting(string memory _newGreeting) public payable {
-        // Print data to the hardhat chain console. Remove when deploying to a live network.
-        console.log("Setting new greeting '%s' from %s", _newGreeting, msg.sender);
+    function createGame(uint256 betAmount) public payable {
+        require(msg.value >= betAmount, "Insufficient bet amount");
+        require(betAmount >= MIN_BET, "Bet amount too low");
 
-        // Change state variables
-        greeting = _newGreeting;
-        totalCounter += 1;
-        userGreetingCounter[msg.sender] += 1;
+        uint256 gameId = gameCount++;
+        games[gameId] = Game({
+            player1: msg.sender,
+            player2: address(0),
+            state: GameState.WAITING,
+            player1Move: Move.NONE,
+            player2Move: Move.NONE,
+            result: GameResult.NONE,
+            betAmount: betAmount
+        });
 
-        // msg.value: built-in global variable that represents the amount of ether sent with the transaction
-        if (msg.value > 0) {
-            premium = true;
+        emit GameCreated(gameId, msg.sender, betAmount);
+    }
+
+    /**
+     * @dev Joins an existing game
+     * @param gameId The ID of the game to join
+     */
+    function joinGame(uint256 gameId) public payable gameExists(gameId) {
+        Game storage game = games[gameId];
+        require(game.state == GameState.WAITING, "Game not in waiting state");
+        require(game.player2 == address(0), "Game already has two players");
+        require(msg.sender != game.player1, "Cannot play against yourself");
+        require(msg.value >= game.betAmount, "Insufficient bet amount");
+
+        game.player2 = msg.sender;
+        game.state = GameState.PLAYING;
+
+        emit GameJoined(gameId, msg.sender);
+    }
+
+    /**
+     * @dev Makes a move in the game
+     * @param gameId The ID of the game
+     * @param move The move to make (ROCK, PAPER, or SCISSORS)
+     */
+    function makeMove(uint256 gameId, Move move) public gameExists(gameId) isPlayer(gameId) validMove(move) {
+        Game storage game = games[gameId];
+        require(game.state == GameState.PLAYING, "Game not in playing state");
+
+        if (msg.sender == game.player1) {
+            require(game.player1Move == Move.NONE, "Player 1 already made a move");
+            game.player1Move = move;
         } else {
-            premium = false;
+            require(game.player2Move == Move.NONE, "Player 2 already made a move");
+            game.player2Move = move;
         }
 
-        // emit: keyword used to trigger an event
-        emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, msg.value);
+        emit MoveMade(gameId, msg.sender, move);
+
+        // If both players have made their moves, determine the winner
+        if (game.player1Move != Move.NONE && game.player2Move != Move.NONE) {
+            _determineWinner(gameId);
+        }
     }
 
     /**
-     * Function that allows the owner to withdraw all the Ether in the contract
-     * The function can only be called by the owner of the contract as defined by the isOwner modifier
+     * @dev Internal function to determine the winner of the game
+     * @param gameId The ID of the game
      */
-    function withdraw() public isOwner {
-        (bool success, ) = owner.call{ value: address(this).balance }("");
-        require(success, "Failed to send Ether");
+    function _determineWinner(uint256 gameId) internal {
+        Game storage game = games[gameId];
+        
+        if (game.player1Move == game.player2Move) {
+            game.result = GameResult.DRAW;
+            // Return bets to both players
+            (bool success1, ) = game.player1.call{value: game.betAmount}("");
+            (bool success2, ) = game.player2.call{value: game.betAmount}("");
+            require(success1 && success2, "Failed to return bets");
+        } else if (
+            (game.player1Move == Move.ROCK && game.player2Move == Move.SCISSORS) ||
+            (game.player1Move == Move.PAPER && game.player2Move == Move.ROCK) ||
+            (game.player1Move == Move.SCISSORS && game.player2Move == Move.PAPER)
+        ) {
+            game.result = GameResult.PLAYER1_WIN;
+            // Send all bets to player1
+            (bool success, ) = game.player1.call{value: game.betAmount * 2}("");
+            require(success, "Failed to send winnings");
+        } else {
+            game.result = GameResult.PLAYER2_WIN;
+            // Send all bets to player2
+            (bool success, ) = game.player2.call{value: game.betAmount * 2}("");
+            require(success, "Failed to send winnings");
+        }
+
+        game.state = GameState.COMPLETED;
+        emit GameCompleted(gameId, game.result);
     }
 
     /**
-     * Function that allows the contract to receive ETH
+     * @dev Returns the current state of a game
+     * @param gameId The ID of the game
      */
-    receive() external payable {}
+    function getGame(uint256 gameId) public view gameExists(gameId) returns (
+        address player1,
+        address player2,
+        GameState state,
+        Move player1Move,
+        Move player2Move,
+        GameResult result,
+        uint256 betAmount
+    ) {
+        Game storage game = games[gameId];
+        return (
+            game.player1,
+            game.player2,
+            game.state,
+            game.player1Move,
+            game.player2Move,
+            game.result,
+            game.betAmount
+        );
+    }
 }
