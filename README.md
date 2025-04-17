@@ -80,7 +80,7 @@ Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob
 
 # 🎮 Rock Paper Scissors on Ethereum
 
-A decentralized Rock Paper Scissors game built with Scaffold-ETH 2. This project demonstrates how to build a simple but complete dApp with smart contracts and a React frontend.
+A decentralized Rock Paper Scissors game built with Scaffold-ETH 2, featuring a secure commit-reveal pattern to prevent cheating. This project demonstrates how to build a fair and transparent dApp with smart contracts and a React frontend.
 
 ## 📚 Table of Contents
 
@@ -99,8 +99,9 @@ The game is implemented in `YourContract.sol` using Solidity. Here's a breakdown
 ```solidity
 enum GameState {
     WAITING,    // 0 - Game created, waiting for player 2
-    PLAYING,    // 1 - Both players joined, making moves
-    COMPLETED   // 2 - Game finished, winner determined
+    COMMITTED,  // 1 - Both players committed their moves
+    REVEALED,   // 2 - Both players revealed their moves
+    COMPLETED   // 3 - Game finished, winner determined
 }
 
 enum Move {
@@ -125,6 +126,8 @@ struct Game {
     address player1;
     address player2;
     GameState state;
+    bytes32 player1Commitment;
+    bytes32 player2Commitment;
     Move player1Move;
     Move player2Move;
     GameResult result;
@@ -145,6 +148,8 @@ function createGame(uint256 betAmount) external payable {
         player1: msg.sender,
         player2: address(0),
         state: GameState.WAITING,
+        player1Commitment: bytes32(0),
+        player2Commitment: bytes32(0),
         player1Move: Move.NONE,
         player2Move: Move.NONE,
         result: GameResult.NONE,
@@ -165,27 +170,53 @@ function joinGame(uint256 gameId) external payable {
     require(msg.value == game.betAmount, "Incorrect bet amount");
 
     game.player2 = msg.sender;
-    game.state = GameState.PLAYING;
+    game.state = GameState.COMMITTED;
     emit GameJoined(gameId, msg.sender);
 }
 ```
 
-3. **Making a Move**
+3. **Committing a Move**
 
 ```solidity
-function makeMove(uint256 gameId, Move move) external {
+function commitMove(uint256 gameId, bytes32 commitment) external onlyPlayers(gameId) {
     Game storage game = games[gameId];
-    require(game.state == GameState.PLAYING, "Game not in progress");
+    require(game.state == GameState.COMMITTED, "Game not in commit phase");
 
-    if (msg.sender == game.player1 && game.player1Move == Move.NONE) {
-        game.player1Move = move;
-    } else if (msg.sender == game.player2 && game.player2Move == Move.NONE) {
-        game.player2Move = move;
+    if (msg.sender == game.player1 && game.player1Commitment == bytes32(0)) {
+        game.player1Commitment = commitment;
+    } else if (msg.sender == game.player2 && game.player2Commitment == bytes32(0)) {
+        game.player2Commitment = commitment;
     } else {
-        revert("Not your turn or already moved");
+        revert("Not your turn or already committed");
     }
 
-    emit MoveMade(gameId, msg.sender, move);
+    emit MoveCommitted(gameId, msg.sender);
+
+    if (game.player1Commitment != bytes32(0) && game.player2Commitment != bytes32(0)) {
+        game.state = GameState.REVEALED;
+    }
+}
+```
+
+4. **Revealing a Move**
+
+```solidity
+function revealMove(uint256 gameId, Move move, bytes32 salt) external onlyPlayers(gameId) {
+    Game storage game = games[gameId];
+    require(game.state == GameState.REVEALED, "Game not in reveal phase");
+    require(move != Move.NONE, "Invalid move");
+
+    bytes32 commitment = keccak256(abi.encodePacked(move, salt, msg.sender));
+
+    if (msg.sender == game.player1) {
+        require(commitment == game.player1Commitment, "Invalid commitment");
+        game.player1Move = move;
+    } else {
+        require(commitment == game.player2Commitment, "Invalid commitment");
+        game.player2Move = move;
+    }
+
+    emit MoveRevealed(gameId, msg.sender, move);
 
     if (game.player1Move != Move.NONE && game.player2Move != Move.NONE) {
         _determineWinner(gameId);
@@ -207,6 +238,8 @@ interface Game {
     player1: `0x${string}`;
     player2: `0x${string}`;
     state: number;
+    player1Commitment: string;
+    player2Commitment: string;
     player1Move: number;
     player2Move: number;
     result: number;
@@ -235,64 +268,15 @@ const { writeContractAsync: createGame } = useScaffoldWriteContract({
 ```typescript
 useScaffoldWatchContractEvent({
     contractName: "YourContract",
-    eventName: "MoveMade",
+    eventName: "MoveRevealed",
     onLogs: (logs) => {
         logs.forEach((log) => {
             if (log.args?.gameId && log.args?.player && log.args?.move) {
-                console.log(`🎯 Move made: ${Move[Number(log.args.move)]}`);
+                console.log(`🎯 Move revealed: ${Move[Number(log.args.move)]}`);
             }
         });
     },
 });
-```
-
-### Game Flow Implementation
-
-1. **Creating a Game**
-
-```typescript
-const handleCreateGame = async () => {
-    try {
-        await createGame({
-            functionName: "createGame",
-            args: [parseEther(betAmount)],
-            value: parseEther(betAmount),
-        });
-    } catch (error) {
-        console.error("Error creating game:", error);
-    }
-};
-```
-
-2. **Joining a Game**
-
-```typescript
-const handleJoinGame = async (gameId: bigint) => {
-    try {
-        await joinGame({
-            functionName: "joinGame",
-            args: [gameId],
-            value: parseEther(betAmount),
-        });
-    } catch (error) {
-        console.error("Error joining game:", error);
-    }
-};
-```
-
-3. **Making a Move**
-
-```typescript
-const handleMakeMove = async (gameId: bigint, move: Move) => {
-    try {
-        await makeMove({
-            functionName: "makeMove",
-            args: [gameId, move],
-        });
-    } catch (error) {
-        console.error("Error making move:", error);
-    }
-};
 ```
 
 ## Game Flow
@@ -300,324 +284,77 @@ const handleMakeMove = async (gameId: bigint, move: Move) => {
 1. **Game Creation**
 
     - Player 1 creates a game with a bet amount
-    - Contract emits `GameCreated` event
-    - Game state is set to `WAITING`
+    - Game starts in WAITING state
 
 2. **Game Joining**
 
-    - Player 2 joins the game with matching bet
-    - Contract emits `GameJoined` event
-    - Game state changes to `PLAYING`
+    - Player 2 joins the game with matching bet amount
+    - Game transitions to COMMITTED state
 
-3. **Making Moves**
+3. **Move Commitment**
 
-    - Players take turns making moves
-    - Contract emits `MoveMade` events
-    - When both moves are made, winner is determined
+    - Both players commit their moves using a hash of their move + salt
+    - Game transitions to REVEALED state when both commitments are made
 
-4. **Game Completion**
-    - Contract determines winner
-    - Emits `GameCompleted` event
-    - Prize is distributed to winner
+4. **Move Revelation**
 
-## Technical Details
+    - Players reveal their moves by providing the original move and salt
+    - Contract verifies the commitment matches
+    - Game transitions to COMPLETED state when both moves are revealed
 
-### Smart Contract Security
-
--   Reentrancy protection
--   Input validation
--   State transition checks
--   Proper access control
-
-### Frontend Optimizations
-
--   Debounced contract reads
--   Event-based updates
--   Efficient state management
--   Type safety with TypeScript
-
-## Development Guide
-
-### Prerequisites
-
--   Node.js >= v20.18.3
--   Yarn
--   Git
-
-### Setup
-
-1. Clone the repository
-2. Install dependencies:
-
-```bash
-yarn install
-```
-
-3. Start local blockchain:
-
-```bash
-yarn chain
-```
-
-4. Deploy contracts:
-
-```bash
-yarn deploy
-```
-
-5. Start frontend:
-
-```bash
-yarn start
-```
-
-### Testing
-
-```bash
-yarn test
-```
-
-### Useful Resources
-
--   [Scaffold-ETH 2 Documentation](https://docs.scaffoldeth.io)
--   [Solidity Documentation](https://docs.soliditylang.org)
--   [Wagmi Documentation](https://wagmi.sh)
--   [Next.js Documentation](https://nextjs.org/docs)
-
-## Learning Exercise
-
-This project is designed to be a learning resource. Here are some suggested exercises:
-
-1. **Smart Contract**
-
-    - Add a time limit for moves
-    - Implement a tiebreaker system
-    - Add support for multiple rounds
-    - Create a tournament system
-
-2. **Frontend**
-
-    - Add animations for moves
-    - Implement a chat system
-    - Create a leaderboard
-    - Add sound effects
-
-3. **Testing**
-    - Write unit tests for the contract
-    - Add integration tests
-    - Implement frontend testing
-    - Create a test coverage report
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
-
-## License
-
-This project is licensed under the MIT License.
-
-# Rock Paper Scissors with Commit-Reveal Pattern
-
-A secure and fair implementation of Rock Paper Scissors on the blockchain using Scaffold-ETH 2. This implementation uses a commit-reveal pattern to ensure that players cannot see each other's moves until both have committed.
-
-## Features
-
--   🎮 Play Rock Paper Scissors on the blockchain
--   🔒 Secure commit-reveal pattern to prevent cheating
--   💰 Betting functionality with automatic payouts
--   ✅ Comprehensive test suite
--   🎯 Fair and transparent gameplay
-
-## How It Works
-
-### Game States
-
-The game progresses through several states:
-
-```solidity
-enum GameState {
-    WAITING,    // Game created, waiting for player 2
-    COMMITTED,  // Both players committed their moves
-    REVEALED,   // Both players revealed their moves
-    COMPLETED   // Game finished, winner determined
-}
-```
-
-### Game Flow
-
-1. **Game Creation**: Player 1 creates a game with a bet amount
-
-    ```solidity
-    function createGame(uint256 betAmount) external payable {
-        require(msg.value >= MIN_BET, "Bet amount too low");
-        // ... game creation logic
-    }
-    ```
-
-2. **Player 2 Joins**: Second player joins with matching bet
-
-    ```solidity
-    function joinGame(uint256 gameId) external payable {
-        require(game.state == GameState.WAITING, "Game not available");
-        require(msg.value == game.betAmount, "Incorrect bet amount");
-        // ... joining logic
-    }
-    ```
-
-3. **Commit Phase**: Players commit their moves using a hash
-
-    ```solidity
-    // On the frontend:
-    const salt = ethers.randomBytes(32);
-    const commitment = ethers.keccak256(
-        ethers.solidityPacked(
-            ["uint8", "bytes32", "address"],
-            [move, salt, playerAddress]
-        )
-    );
-
-    // Call the contract:
-    function commitMove(uint256 gameId, bytes32 commitment) external {
-        require(game.state == GameState.COMMITTED, "Game not in commit phase");
-        // ... commitment logic
-    }
-    ```
-
-4. **Reveal Phase**: Players reveal their moves with the salt
-
-    ```solidity
-    function revealMove(uint256 gameId, Move move, bytes32 salt) external {
-        require(game.state == GameState.REVEALED, "Game not in reveal phase");
-        bytes32 commitment = keccak256(abi.encodePacked(move, salt, msg.sender));
-        require(commitment == playerCommitment, "Invalid commitment");
-        // ... reveal logic
-    }
-    ```
-
-5. **Game Completion**: Winner is determined and prizes distributed
-    ```solidity
-    // Automatic winner determination and prize distribution
-    if (game.player1Move == game.player2Move) {
-        game.result = GameResult.DRAW;
-        // Return bets to both players
-    } else if (/* player 1 wins condition */) {
-        game.result = GameResult.PLAYER1_WIN;
-        // Send both bets to player 1
-    } else {
-        game.result = GameResult.PLAYER2_WIN;
-        // Send both bets to player 2
-    }
-    ```
-
-## Commit-Reveal Pattern
-
-The commit-reveal pattern ensures fairness by preventing players from seeing each other's moves before making their own. Here's how it works:
-
-1. **Commitment**: Players commit a hash of their move, a random salt, and their address
-
-    - The salt ensures the commitment cannot be brute-forced
-    - Including the player's address prevents replay attacks
-
-2. **Revelation**: After both players commit, they reveal their moves by providing:
-    - The actual move (Rock, Paper, or Scissors)
-    - The salt used in the commitment
-    - The contract verifies that the hash matches the original commitment
-
-## Testing
-
-The contract includes comprehensive tests covering all aspects of gameplay:
-
-```typescript
-describe("YourContract", function () {
-    // Game Creation Tests
-    it("Should create a new game with correct initial state");
-    it("Should revert if bet amount is too low");
-
-    // Game Joining Tests
-    it("Should allow player2 to join the game");
-    it("Should revert if game is not in waiting state");
-
-    // Move Commitment Tests
-    it("Should allow players to commit moves");
-    it("Should revert if game is not in committed state");
-
-    // Move Revelation Tests
-    it("Should allow players to reveal moves");
-    it("Should revert if commitment is invalid");
-
-    // Game Results Tests
-    it("Should determine all possible outcomes correctly");
-});
-```
-
-To run the tests:
-
-```bash
-yarn test
-```
+5. **Winner Determination**
+    - Contract determines winner based on Rock Paper Scissors rules
+    - Winner receives both bets
+    - In case of a draw, bets are returned to both players
 
 ## Security Considerations
 
-1. **Randomness**: The salt must be truly random to prevent prediction
-2. **Timing**: Players must commit within a reasonable timeframe
-3. **Verification**: All commitments are verified during reveal phase
-4. **State Management**: Strict state transitions prevent out-of-order actions
+1. **Commit-Reveal Pattern**
 
-## Development
+    - Players commit to their moves before revealing them
+    - Prevents players from changing their moves based on opponent's choice
+    - Uses keccak256 hash function for commitment generation
 
-1. Clone the repository
-2. Install dependencies:
+2. **State Management**
+
+    - Clear state transitions prevent invalid operations
+    - Each state has specific allowed actions
+    - Proper checks ensure game integrity
+
+3. **Bet Handling**
+    - Exact bet amount matching required
+    - Secure transfer of funds to winner
+    - Draw handling returns funds to both players
+
+## Development Guide
+
+1. **Setup**
 
     ```bash
+    git clone https://github.com/your-repo/rock-paper-scissors.git
+    cd rock-paper-scissors
     yarn install
     ```
 
-3. Start local blockchain:
+2. **Local Development**
 
     ```bash
-    yarn chain
+    yarn chain        # Start local blockchain
+    yarn deploy       # Deploy contracts
+    yarn start        # Start frontend
     ```
 
-4. Deploy the contract:
+3. **Testing**
 
     ```bash
-    yarn deploy
+    yarn hardhat:test # Run contract tests
     ```
 
-5. Start the frontend:
+4. **Deployment**
     ```bash
-    yarn start
+    yarn deploy --network <network> # Deploy to specific network
     ```
-
-## Contract Interface
-
-```solidity
-interface IRockPaperScissors {
-    function createGame(uint256 betAmount) external payable;
-    function joinGame(uint256 gameId) external payable;
-    function commitMove(uint256 gameId, bytes32 commitment) external;
-    function revealMove(uint256 gameId, Move move, bytes32 salt) external;
-    function getGame(uint256 gameId) external view returns (Game memory);
-}
-```
-
-## Events
-
-```solidity
-event GameCreated(uint256 indexed gameId, address indexed player1, uint256 betAmount);
-event GameJoined(uint256 indexed gameId, address indexed player2);
-event MoveCommitted(uint256 indexed gameId, address indexed player);
-event MoveRevealed(uint256 indexed gameId, address indexed player, Move move);
-event GameCompleted(uint256 indexed gameId, address indexed winner, uint256 amount);
-```
-
-## Built With
-
--   [Scaffold-ETH 2](https://github.com/scaffold-eth/scaffold-eth-2)
--   [Hardhat](https://hardhat.org/)
--   [ethers.js](https://docs.ethers.org/v5/)
--   [TypeScript](https://www.typescriptlang.org/)
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the LICENSE file for details.
