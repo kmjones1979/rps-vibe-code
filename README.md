@@ -228,9 +228,33 @@ function revealMove(uint256 gameId, Move move, bytes32 salt) external onlyPlayer
 
 The frontend is built with React and uses Scaffold-ETH 2's custom hooks for blockchain interaction.
 
-### Key Components
+### Secure Move Commitment System
 
-1. **Game Interface**
+The game uses a password-based commitment system to ensure move secrecy and prevent cheating:
+
+1. **Committing a Move**
+
+    - Players enter a password and select their move (Rock, Paper, or Scissors)
+    - The salt is generated from: `keccak256(password + gameId + playerAddress)`
+    - The commitment is created using: `keccak256(move + salt + playerAddress)`
+    - Only the move is stored locally; the password is never saved
+    - The commitment is sent to the blockchain
+
+2. **Revealing a Move**
+    - Players must re-enter their password to reveal their move
+    - The system regenerates the salt and commitment to verify the password
+    - If the regenerated commitment matches the one on-chain, the move is revealed
+    - This ensures players can't change their move after committing
+
+### Security Considerations
+
+-   Passwords are never stored in localStorage or anywhere else
+-   Each commitment is unique to the game and player (using gameId and address)
+-   Password verification happens client-side before sending transactions
+-   Players must remember their password to reveal their move
+-   The system prevents move changes after commitment
+
+### Game Interface
 
 ```typescript
 interface Game {
@@ -247,113 +271,85 @@ interface Game {
 }
 ```
 
-2. **Contract Interaction Hooks**
+### Betting System
 
-```typescript
-// Reading game count
-const { data: gameCount } = useScaffoldReadContract({
-    contractName: "YourContract",
-    functionName: "gameCount",
-    watch: true,
-});
+-   All bets must be in ETH
+-   Minimum bet amount: 0.001 ETH
+-   Each player must stake the same amount
+-   Winners receive both stakes (2x their bet)
+-   In case of a draw, both players receive their stake back
 
-// Writing to contract
-const { writeContractAsync: createGame } = useScaffoldWriteContract({
-    contractName: "YourContract",
-});
+### Game States
+
+1. **WAITING (0)**
+
+    - Game created by player 1
+    - Waiting for player 2 to join with matching stake
+
+2. **COMMITTED (1)**
+
+    - Both players have joined
+    - Players can commit their moves using passwords
+    - Transitions to REVEALED when both commits are received
+
+3. **REVEALED (2)**
+
+    - Both players have committed their moves
+    - Players must re-enter passwords to reveal moves
+    - Transitions to COMPLETED when both moves are revealed
+
+4. **COMPLETED (3)**
+    - Both moves revealed
+    - Winner determined
+    - Stakes distributed
+    - Game results permanently recorded on-chain
+
+### Development Guide
+
+Follow these steps to run the game locally:
+
+1. Install dependencies:
+
+```bash
+yarn install
 ```
 
-3. **Event Handling**
+2. Start local blockchain:
 
-```typescript
-useScaffoldWatchContractEvent({
-    contractName: "YourContract",
-    eventName: "MoveRevealed",
-    onLogs: (logs) => {
-        logs.forEach((log) => {
-            if (log.args?.gameId && log.args?.player && log.args?.move) {
-                console.log(`🎯 Move revealed: ${Move[Number(log.args.move)]}`);
-            }
-        });
-    },
-});
+```bash
+yarn chain
 ```
 
-## Game Flow
+3. Deploy the contract:
 
-1. **Game Creation**
+```bash
+yarn deploy
+```
 
-    - Player 1 creates a game with a bet amount
-    - Game starts in WAITING state
+4. Start the frontend:
 
-2. **Game Joining**
+```bash
+yarn start
+```
 
-    - Player 2 joins the game with matching bet amount
-    - Game transitions to COMMITTED state
+5. Visit `http://localhost:3000` to play!
 
-3. **Move Commitment**
+### Testing
 
-    - Both players commit their moves using a hash of their move + salt
-    - Game transitions to REVEALED state when both commitments are made
+Run the test suite to verify game mechanics:
 
-4. **Move Revelation**
+```bash
+yarn hardhat:test
+```
 
-    - Players reveal their moves by providing the original move and salt
-    - Contract verifies the commitment matches
-    - Game transitions to COMPLETED state when both moves are revealed
+The tests cover:
 
-5. **Winner Determination**
-    - Contract determines winner based on Rock Paper Scissors rules
-    - Winner receives both bets
-    - In case of a draw, bets are returned to both players
-
-## Security Considerations
-
-1. **Commit-Reveal Pattern**
-
-    - Players commit to their moves before revealing them
-    - Prevents players from changing their moves based on opponent's choice
-    - Uses keccak256 hash function for commitment generation
-
-2. **State Management**
-
-    - Clear state transitions prevent invalid operations
-    - Each state has specific allowed actions
-    - Proper checks ensure game integrity
-
-3. **Bet Handling**
-    - Exact bet amount matching required
-    - Secure transfer of funds to winner
-    - Draw handling returns funds to both players
-
-## Development Guide
-
-1. **Setup**
-
-    ```bash
-    git clone https://github.com/your-repo/rock-paper-scissors.git
-    cd rock-paper-scissors
-    yarn install
-    ```
-
-2. **Local Development**
-
-    ```bash
-    yarn chain        # Start local blockchain
-    yarn deploy       # Deploy contracts
-    yarn start        # Start frontend
-    ```
-
-3. **Testing**
-
-    ```bash
-    yarn hardhat:test # Run contract tests
-    ```
-
-4. **Deployment**
-    ```bash
-    yarn deploy --network <network> # Deploy to specific network
-    ```
+-   Game creation and joining
+-   Move commitment and revelation
+-   Password-based commitment verification
+-   Winner determination
+-   Stake distribution
+-   Error cases and security checks
 
 ## License
 
