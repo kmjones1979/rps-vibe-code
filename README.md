@@ -374,7 +374,7 @@ yarn start
 ### Testing
 
 ```bash
-yarn hardhat:test
+yarn test
 ```
 
 ### Useful Resources
