@@ -1,5 +1,35 @@
 # 🎮 Rock Paper Scissors: From Simple to Secure 🛡️
 
+## 📚 Repository and Resources
+
+This tutorial is part of a complete implementation available on GitHub! 🚀
+
+### 🔗 GitHub Repository
+
+Check out the full implementation at: [rps-vibe-code](https://github.com/kmjones1979/rps-vibe-code/tree/commit-reveal-version)
+
+### 🌟 Commit-Reveal Version
+
+The repository contains a special branch called `commit-reveal-version` that implements all the security features discussed in this tutorial. This version includes:
+
+-   🔒 Secure commit-reveal pattern implementation
+-   🧪 Comprehensive test suite
+-   🎮 Complete game flow with betting
+-   📝 Well-documented code
+
+### 📖 Tutorial Reference
+
+This tutorial (`TUTORIAL.md`) provides a detailed walkthrough of the commit-reveal pattern and its implementation. You can find it in the repository's root directory.
+
+### 🛠️ Getting Started
+
+To try out the commit-reveal version:
+
+1. Clone the repository
+2. Checkout the `commit-reveal-version` branch
+3. Follow the setup instructions in the README
+4. Run the tests to see the security features in action
+
 This tutorial will take you on a journey from a basic Rock Paper Scissors game to a secure blockchain implementation using the commit-reveal pattern. We'll explore both the theoretical concepts and practical implementation details, making sure you understand every step of the process! 🚀
 
 ## 🎯 Understanding the Commit-Reveal Pattern
@@ -313,6 +343,7 @@ Let's look at practical implementations:
     - Returns the commitment as a hex string 📝
 
 3. **Testing Verification** 🧪
+
     ```typescript
     it("Should verify commitments correctly", async () => {
         // Setup
@@ -335,6 +366,7 @@ Let's look at practical implementations:
         expect(verified).to.be.true;
     });
     ```
+
     - Tests the complete commitment process 🔄
     - Verifies that valid commitments are accepted ✅
     - Ensures the system works as expected 🎯

@@ -82,6 +82,23 @@ Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob
 
 A decentralized Rock Paper Scissors game built with Scaffold-ETH 2. This project demonstrates how to build a simple but complete dApp with smart contracts and a React frontend.
 
+## 🔒 Enhanced Security Version
+
+This repository includes a special branch with enhanced security features using the commit-reveal pattern! 🛡️
+
+### 🌟 Commit-Reveal Version
+
+Check out the secure implementation in the [`commit-reveal-version`](https://github.com/kmjones1979/rps-vibe-code/tree/commit-reveal-version) branch, which includes:
+
+-   🔒 Secure commit-reveal pattern to prevent move prediction
+-   🧪 Comprehensive test suite for security features
+-   📚 Detailed tutorial in `TUTORIAL.md`
+-   🎮 Complete game flow with betting and security
+
+### 📖 Learn More
+
+For a detailed explanation of the commit-reveal pattern and its implementation, check out the [TUTORIAL.md](TUTORIAL.md) file in the repository.
+
 ## 📚 Table of Contents
 
 -   [Smart Contract Overview](#smart-contract-overview)
