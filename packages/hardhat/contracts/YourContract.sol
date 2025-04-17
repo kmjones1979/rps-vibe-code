@@ -55,6 +55,7 @@ contract YourContract {
     function createGame(uint256 betAmount) public payable {
         require(msg.value >= betAmount, "Insufficient bet amount");
         require(betAmount >= MIN_BET, "Bet amount too low");
+        require(msg.value == betAmount, "Incorrect bet amount");
 
         uint256 gameId = gameCount++;
         games[gameId] = Game({
@@ -76,10 +77,10 @@ contract YourContract {
      */
     function joinGame(uint256 gameId) public payable gameExists(gameId) {
         Game storage game = games[gameId];
-        require(game.state == GameState.WAITING, "Game not in waiting state");
+        require(game.state == GameState.WAITING, "Game not available");
         require(game.player2 == address(0), "Game already has two players");
         require(msg.sender != game.player1, "Cannot play against yourself");
-        require(msg.value >= game.betAmount, "Insufficient bet amount");
+        require(msg.value == game.betAmount, "Incorrect bet amount");
 
         game.player2 = msg.sender;
         game.state = GameState.PLAYING;
@@ -94,13 +95,13 @@ contract YourContract {
      */
     function makeMove(uint256 gameId, Move move) public gameExists(gameId) isPlayer(gameId) validMove(move) {
         Game storage game = games[gameId];
-        require(game.state == GameState.PLAYING, "Game not in playing state");
+        require(game.state == GameState.PLAYING, "Game not in progress");
 
         if (msg.sender == game.player1) {
-            require(game.player1Move == Move.NONE, "Player 1 already made a move");
+            require(game.player1Move == Move.NONE, "Not your turn or already moved");
             game.player1Move = move;
         } else {
-            require(game.player2Move == Move.NONE, "Player 2 already made a move");
+            require(game.player2Move == Move.NONE, "Not your turn or already moved");
             game.player2Move = move;
         }
 
