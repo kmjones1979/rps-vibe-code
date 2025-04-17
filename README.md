@@ -415,3 +415,209 @@ Feel free to submit issues and enhancement requests!
 ## License
 
 This project is licensed under the MIT License.
+
+# Rock Paper Scissors with Commit-Reveal Pattern
+
+A secure and fair implementation of Rock Paper Scissors on the blockchain using Scaffold-ETH 2. This implementation uses a commit-reveal pattern to ensure that players cannot see each other's moves until both have committed.
+
+## Features
+
+-   🎮 Play Rock Paper Scissors on the blockchain
+-   🔒 Secure commit-reveal pattern to prevent cheating
+-   💰 Betting functionality with automatic payouts
+-   ✅ Comprehensive test suite
+-   🎯 Fair and transparent gameplay
+
+## How It Works
+
+### Game States
+
+The game progresses through several states:
+
+```solidity
+enum GameState {
+    WAITING,    // Game created, waiting for player 2
+    COMMITTED,  // Both players committed their moves
+    REVEALED,   // Both players revealed their moves
+    COMPLETED   // Game finished, winner determined
+}
+```
+
+### Game Flow
+
+1. **Game Creation**: Player 1 creates a game with a bet amount
+
+    ```solidity
+    function createGame(uint256 betAmount) external payable {
+        require(msg.value >= MIN_BET, "Bet amount too low");
+        // ... game creation logic
+    }
+    ```
+
+2. **Player 2 Joins**: Second player joins with matching bet
+
+    ```solidity
+    function joinGame(uint256 gameId) external payable {
+        require(game.state == GameState.WAITING, "Game not available");
+        require(msg.value == game.betAmount, "Incorrect bet amount");
+        // ... joining logic
+    }
+    ```
+
+3. **Commit Phase**: Players commit their moves using a hash
+
+    ```solidity
+    // On the frontend:
+    const salt = ethers.randomBytes(32);
+    const commitment = ethers.keccak256(
+        ethers.solidityPacked(
+            ["uint8", "bytes32", "address"],
+            [move, salt, playerAddress]
+        )
+    );
+
+    // Call the contract:
+    function commitMove(uint256 gameId, bytes32 commitment) external {
+        require(game.state == GameState.COMMITTED, "Game not in commit phase");
+        // ... commitment logic
+    }
+    ```
+
+4. **Reveal Phase**: Players reveal their moves with the salt
+
+    ```solidity
+    function revealMove(uint256 gameId, Move move, bytes32 salt) external {
+        require(game.state == GameState.REVEALED, "Game not in reveal phase");
+        bytes32 commitment = keccak256(abi.encodePacked(move, salt, msg.sender));
+        require(commitment == playerCommitment, "Invalid commitment");
+        // ... reveal logic
+    }
+    ```
+
+5. **Game Completion**: Winner is determined and prizes distributed
+    ```solidity
+    // Automatic winner determination and prize distribution
+    if (game.player1Move == game.player2Move) {
+        game.result = GameResult.DRAW;
+        // Return bets to both players
+    } else if (/* player 1 wins condition */) {
+        game.result = GameResult.PLAYER1_WIN;
+        // Send both bets to player 1
+    } else {
+        game.result = GameResult.PLAYER2_WIN;
+        // Send both bets to player 2
+    }
+    ```
+
+## Commit-Reveal Pattern
+
+The commit-reveal pattern ensures fairness by preventing players from seeing each other's moves before making their own. Here's how it works:
+
+1. **Commitment**: Players commit a hash of their move, a random salt, and their address
+
+    - The salt ensures the commitment cannot be brute-forced
+    - Including the player's address prevents replay attacks
+
+2. **Revelation**: After both players commit, they reveal their moves by providing:
+    - The actual move (Rock, Paper, or Scissors)
+    - The salt used in the commitment
+    - The contract verifies that the hash matches the original commitment
+
+## Testing
+
+The contract includes comprehensive tests covering all aspects of gameplay:
+
+```typescript
+describe("YourContract", function () {
+    // Game Creation Tests
+    it("Should create a new game with correct initial state");
+    it("Should revert if bet amount is too low");
+
+    // Game Joining Tests
+    it("Should allow player2 to join the game");
+    it("Should revert if game is not in waiting state");
+
+    // Move Commitment Tests
+    it("Should allow players to commit moves");
+    it("Should revert if game is not in committed state");
+
+    // Move Revelation Tests
+    it("Should allow players to reveal moves");
+    it("Should revert if commitment is invalid");
+
+    // Game Results Tests
+    it("Should determine all possible outcomes correctly");
+});
+```
+
+To run the tests:
+
+```bash
+yarn test
+```
+
+## Security Considerations
+
+1. **Randomness**: The salt must be truly random to prevent prediction
+2. **Timing**: Players must commit within a reasonable timeframe
+3. **Verification**: All commitments are verified during reveal phase
+4. **State Management**: Strict state transitions prevent out-of-order actions
+
+## Development
+
+1. Clone the repository
+2. Install dependencies:
+
+    ```bash
+    yarn install
+    ```
+
+3. Start local blockchain:
+
+    ```bash
+    yarn chain
+    ```
+
+4. Deploy the contract:
+
+    ```bash
+    yarn deploy
+    ```
+
+5. Start the frontend:
+    ```bash
+    yarn start
+    ```
+
+## Contract Interface
+
+```solidity
+interface IRockPaperScissors {
+    function createGame(uint256 betAmount) external payable;
+    function joinGame(uint256 gameId) external payable;
+    function commitMove(uint256 gameId, bytes32 commitment) external;
+    function revealMove(uint256 gameId, Move move, bytes32 salt) external;
+    function getGame(uint256 gameId) external view returns (Game memory);
+}
+```
+
+## Events
+
+```solidity
+event GameCreated(uint256 indexed gameId, address indexed player1, uint256 betAmount);
+event GameJoined(uint256 indexed gameId, address indexed player2);
+event MoveCommitted(uint256 indexed gameId, address indexed player);
+event MoveRevealed(uint256 indexed gameId, address indexed player, Move move);
+event GameCompleted(uint256 indexed gameId, address indexed winner, uint256 amount);
+```
+
+## Built With
+
+-   [Scaffold-ETH 2](https://github.com/scaffold-eth/scaffold-eth-2)
+-   [Hardhat](https://hardhat.org/)
+-   [ethers.js](https://docs.ethers.org/v5/)
+-   [TypeScript](https://www.typescriptlang.org/)
+
+## License
+
+MIT

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { hexToBigInt, parseEther } from "viem";
+import { encodeAbiParameters, encodePacked, formatEther, keccak256, parseEther } from "viem";
 import { useAccount } from "wagmi";
 import { Address } from "~~/components/scaffold-eth";
 import {
@@ -16,6 +16,8 @@ interface Game {
   player1: `0x${string}`;
   player2: `0x${string}`;
   state: number;
+  player1Commitment: `0x${string}`;
+  player2Commitment: `0x${string}`;
   player1Move: number;
   player2Move: number;
   result: number;
@@ -46,6 +48,21 @@ export default function Home() {
   const { address } = useAccount();
   const [games, setGames] = useState<Game[]>([]);
   const [betAmount, setBetAmount] = useState("0.001");
+  const [selectedMove, setSelectedMove] = useState<number>(0);
+  const [moveCommitments, setMoveCommitments] = useState<Record<string, { move: number; salt: `0x${string}` }>>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("moveCommitments");
+      return saved ? JSON.parse(saved) : {};
+    }
+    return {};
+  });
+
+  // Save commitments to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("moveCommitments", JSON.stringify(moveCommitments));
+    }
+  }, [moveCommitments]);
 
   // Read game count
   const { data: gameCount } = useScaffoldReadContract({
@@ -54,6 +71,7 @@ export default function Home() {
     watch: true,
   });
 
+  // Get contract instance for reading game data
   const { data: contract } = useScaffoldContract({
     contractName: "YourContract",
   });
@@ -67,7 +85,11 @@ export default function Home() {
     contractName: "YourContract",
   });
 
-  const { writeContractAsync: makeMove } = useScaffoldWriteContract({
+  const { writeContractAsync: commitMove } = useScaffoldWriteContract({
+    contractName: "YourContract",
+  });
+
+  const { writeContractAsync: revealMove } = useScaffoldWriteContract({
     contractName: "YourContract",
   });
 
@@ -90,10 +112,12 @@ export default function Home() {
             player1: gameData[0] as `0x${string}`,
             player2: gameData[1] as `0x${string}`,
             state: Number(gameData[2]),
-            player1Move: Number(gameData[3]),
-            player2Move: Number(gameData[4]),
-            result: Number(gameData[5]),
-            betAmount: BigInt(gameData[6]),
+            player1Commitment: gameData[3] as `0x${string}`,
+            player2Commitment: gameData[4] as `0x${string}`,
+            player1Move: Number(gameData[5]),
+            player2Move: Number(gameData[6]),
+            result: Number(gameData[7]),
+            betAmount: BigInt(gameData[8]),
           };
 
           // Always show the latest game, regardless of state
@@ -112,63 +136,40 @@ export default function Home() {
     return () => clearTimeout(timeoutId);
   }, [gameCount, contract]);
 
-  // Subscribe to GameCreated events
+  // Watch contract events
   useScaffoldWatchContractEvent({
     contractName: "YourContract",
     eventName: "GameCreated",
     onLogs: logs => {
-      logs.forEach(log => {
-        if (log.args?.gameId) {
-          console.log("🎮 New game created!");
-          // Clear the previous game when a new one is created
-          setGames([]);
-        }
-      });
+      console.log("🎮 New game created!");
+      setGames([]);
     },
   });
 
-  // Subscribe to MoveMade events
   useScaffoldWatchContractEvent({
     contractName: "YourContract",
-    eventName: "MoveMade",
+    eventName: "MoveCommitted",
     onLogs: logs => {
-      logs.forEach(log => {
-        if (log.args?.gameId && log.args?.player && log.args?.move) {
-          console.log(`🎯 Move made: ${Move[Number(log.args.move)]}`);
-          // Force a refresh of the game data after a move
-          if (gameCount) {
-            const count = Number(gameCount);
-            if (count > 0) {
-              contract?.read.getGame([BigInt(count - 1)]).then(gameData => {
-                const game = {
-                  id: BigInt(count - 1),
-                  player1: gameData[0] as `0x${string}`,
-                  player2: gameData[1] as `0x${string}`,
-                  state: Number(gameData[2]),
-                  player1Move: Number(gameData[3]),
-                  player2Move: Number(gameData[4]),
-                  result: Number(gameData[5]),
-                  betAmount: BigInt(gameData[6]),
-                };
-                setGames([game]);
-              });
-            }
-          }
-        }
-      });
+      const [gameId, player] = logs[0].args as unknown as [bigint, `0x${string}`];
+      console.log(`🔒 Move committed by ${player}`);
     },
   });
 
-  // Subscribe to GameCompleted events
+  useScaffoldWatchContractEvent({
+    contractName: "YourContract",
+    eventName: "MoveRevealed",
+    onLogs: logs => {
+      const [gameId, player, move] = logs[0].args as unknown as [bigint, `0x${string}`, number];
+      console.log(`🎯 Move revealed: ${Move[move]}`);
+    },
+  });
+
   useScaffoldWatchContractEvent({
     contractName: "YourContract",
     eventName: "GameCompleted",
     onLogs: logs => {
-      logs.forEach(log => {
-        if (log.args?.gameId) {
-          console.log(`🏆 Game over! Result: ${GameResult[Number(log.args.result)]}`);
-        }
-      });
+      const [gameId, winner] = logs[0].args as unknown as [bigint, `0x${string}`];
+      console.log(`🏆 Game completed! Winner: ${winner}`);
     },
   });
 
@@ -196,14 +197,129 @@ export default function Home() {
     }
   };
 
-  const handleMakeMove = async (gameId: bigint, move: Move) => {
+  const handleCommitMove = async (gameId: bigint, move: number) => {
     try {
-      await makeMove({
-        functionName: "makeMove",
-        args: [gameId, move],
+      if (!address) return;
+
+      // Fetch the game data to check state
+      const game = games.find(g => g.id === gameId);
+      if (!game) {
+        console.error("Game not found");
+        return;
+      }
+
+      console.log("Debug - Game State:", {
+        gameId: gameId.toString(),
+        state: game.state,
+        player1: game.player1,
+        player2: game.player2,
+        player1Commitment: game.player1Commitment,
+        player2Commitment: game.player2Commitment,
+      });
+
+      // Generate a random salt using browser's crypto API
+      const randomBytes = new Uint8Array(32);
+      crypto.getRandomValues(randomBytes);
+      const salt = `0x${Array.from(randomBytes)
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("")}` as `0x${string}`;
+
+      console.log("Debug - Commit Move:", {
+        gameId: gameId.toString(),
+        move,
+        salt,
+        address,
+      });
+
+      // Calculate the commitment hash using encodePacked
+      const encodedData = encodePacked(["uint8", "bytes32", "address"], [move, salt, address]);
+
+      console.log("Debug - Encoded Data:", encodedData);
+
+      const commitment = keccak256(encodedData);
+
+      console.log("Debug - Commit Phase:", {
+        commitment,
+        encodedData,
+      });
+
+      // Store the move and salt for later reveal
+      setMoveCommitments(prev => ({
+        ...prev,
+        [gameId.toString()]: { move, salt },
+      }));
+
+      await commitMove({
+        functionName: "commitMove",
+        args: [gameId, commitment],
       });
     } catch (error) {
-      console.error("Error making move:", error);
+      console.error("Error committing move:", error);
+    }
+  };
+
+  const handleRevealMove = async (gameId: bigint) => {
+    try {
+      if (!address) {
+        console.error("No address found");
+        return;
+      }
+
+      const commitment = moveCommitments[gameId.toString()];
+      if (!commitment) {
+        console.error("No commitment found for this game");
+        return;
+      }
+
+      // Fetch the game data to get the stored commitment
+      const game = games.find(g => g.id === gameId);
+      if (!game) {
+        console.error("Game not found");
+        return;
+      }
+
+      console.log("Debug - Game State:", {
+        gameId: gameId.toString(),
+        state: game.state,
+        player1: game.player1,
+        player2: game.player2,
+        player1Commitment: game.player1Commitment,
+        player2Commitment: game.player2Commitment,
+      });
+
+      const storedCommitment = address === game.player1 ? game.player1Commitment : game.player2Commitment;
+
+      console.log("Debug - Reveal Move:", {
+        gameId: gameId.toString(),
+        storedMove: commitment.move,
+        storedSalt: commitment.salt,
+        address,
+        storedCommitment,
+      });
+
+      // Ensure move is a valid uint8
+      const move = commitment.move & 0xff;
+
+      // Recalculate commitment using encodePacked
+      const encodedData = encodePacked(["uint8", "bytes32", "address"], [move, commitment.salt, address]);
+
+      console.log("Debug - Encoded Data:", encodedData);
+
+      const recalculatedCommitment = keccak256(encodedData);
+
+      console.log("Debug - Commitments:", {
+        stored: storedCommitment,
+        recalculated: recalculatedCommitment,
+        match: storedCommitment === recalculatedCommitment,
+        encodedData,
+      });
+
+      await revealMove({
+        functionName: "revealMove",
+        args: [gameId, move, commitment.salt],
+      });
+    } catch (error) {
+      console.error("Error revealing move:", error);
     }
   };
 
@@ -290,18 +406,96 @@ export default function Home() {
 
             {game.state === GameState.PLAYING && isPlayersTurn(game) && (
               <div className="flex gap-2">
-                <button className="btn btn-primary" onClick={() => handleMakeMove(game.id, Move.ROCK)}>
+                <button className="btn btn-primary" onClick={() => handleCommitMove(game.id, Move.ROCK)}>
                   Rock
                 </button>
-                <button className="btn btn-primary" onClick={() => handleMakeMove(game.id, Move.PAPER)}>
+                <button className="btn btn-primary" onClick={() => handleCommitMove(game.id, Move.PAPER)}>
                   Paper
                 </button>
-                <button className="btn btn-primary" onClick={() => handleMakeMove(game.id, Move.SCISSORS)}>
+                <button className="btn btn-primary" onClick={() => handleCommitMove(game.id, Move.SCISSORS)}>
                   Scissors
                 </button>
               </div>
             )}
           </div>
+        </div>
+      ))}
+
+      {games.map(game => (
+        <div key={game.id.toString()} className="bg-base-100 p-8 rounded-xl shadow-lg w-full max-w-md">
+          <h2 className="text-2xl font-bold mb-4">Game {game.id.toString()}</h2>
+
+          <div className="mb-4">
+            <div>
+              Player 1: <Address address={game.player1} />
+            </div>
+            <div>
+              Player 2:{" "}
+              {game.player2 === "0x0000000000000000000000000000000000000000" ? (
+                "Waiting..."
+              ) : (
+                <Address address={game.player2} />
+              )}
+            </div>
+            <div>Bet Amount: {Number(game.betAmount) / 1e18} ETH</div>
+          </div>
+
+          {game.state === 0 && address !== game.player1 && (
+            <button className="btn btn-primary w-full" onClick={() => handleJoinGame(game.id)}>
+              Join Game
+            </button>
+          )}
+
+          {game.state === 1 && (
+            <div>
+              <p className="mb-4">Commit your move:</p>
+              <div className="flex gap-4 mb-4">
+                <button
+                  className={`btn ${selectedMove === 1 ? "btn-primary" : "btn-outline"}`}
+                  onClick={() => setSelectedMove(1)}
+                >
+                  Rock
+                </button>
+                <button
+                  className={`btn ${selectedMove === 2 ? "btn-primary" : "btn-outline"}`}
+                  onClick={() => setSelectedMove(2)}
+                >
+                  Paper
+                </button>
+                <button
+                  className={`btn ${selectedMove === 3 ? "btn-primary" : "btn-outline"}`}
+                  onClick={() => setSelectedMove(3)}
+                >
+                  Scissors
+                </button>
+              </div>
+              {selectedMove !== 0 && (
+                <button className="btn btn-primary w-full" onClick={() => handleCommitMove(game.id, selectedMove)}>
+                  Commit Move
+                </button>
+              )}
+            </div>
+          )}
+
+          {game.state === 2 && (
+            <button className="btn btn-primary w-full" onClick={() => handleRevealMove(game.id)}>
+              Reveal Move
+            </button>
+          )}
+
+          {game.state === 3 && (
+            <div className="text-center">
+              <h3 className="text-xl font-bold mb-2">
+                {game.result === 1 && "🎉 Player 1 Wins!"}
+                {game.result === 2 && "🎉 Player 2 Wins!"}
+                {game.result === 3 && "🤝 It's a Draw!"}
+              </h3>
+              <p className="text-sm text-gray-500">
+                {game.player1Move !== 0 && `Player 1 played: ${Move[game.player1Move]}`}
+                {game.player2Move !== 0 && `Player 2 played: ${Move[game.player2Move]}`}
+              </p>
+            </div>
+          )}
         </div>
       ))}
     </div>

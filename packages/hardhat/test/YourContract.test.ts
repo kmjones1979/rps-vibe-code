@@ -24,6 +24,8 @@ describe("YourContract", function () {
       expect(game.player1).to.equal(player1.address);
       expect(game.player2).to.equal(ethers.ZeroAddress);
       expect(game.state).to.equal(0); // WAITING
+      expect(game.player1Commitment).to.equal(ethers.ZeroHash);
+      expect(game.player2Commitment).to.equal(ethers.ZeroHash);
       expect(game.player1Move).to.equal(0); // NONE
       expect(game.player2Move).to.equal(0); // NONE
       expect(game.result).to.equal(0); // NONE
@@ -54,7 +56,7 @@ describe("YourContract", function () {
 
       const game = await contract.getGame(0);
       expect(game.player2).to.equal(player2.address);
-      expect(game.state).to.equal(1); // PLAYING
+      expect(game.state).to.equal(1); // COMMITTED
     });
 
     it("Should revert if game is not in waiting state", async function () {
@@ -69,51 +71,121 @@ describe("YourContract", function () {
     });
   });
 
-  describe("Making Moves", function () {
+  describe("Committing Moves", function () {
     beforeEach(async function () {
       await contract.connect(player1).createGame(MIN_BET, { value: MIN_BET });
       await contract.connect(player2).joinGame(0, { value: MIN_BET });
     });
 
-    it("Should allow players to make moves", async function () {
-      await contract.connect(player1).makeMove(0, 1); // ROCK
-      await contract.connect(player2).makeMove(0, 2); // PAPER
+    it("Should allow players to commit moves", async function () {
+      // Player 1 commits ROCK
+      const salt1 = ethers.randomBytes(32);
+      const commitment1 = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [1, salt1, player1.address]),
+      );
+      await contract.connect(player1).commitMove(0, commitment1);
+
+      // Player 2 commits PAPER
+      const salt2 = ethers.randomBytes(32);
+      const commitment2 = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [2, salt2, player2.address]),
+      );
+      await contract.connect(player2).commitMove(0, commitment2);
 
       const game = await contract.getGame(0);
-      expect(game.player1Move).to.equal(1);
-      expect(game.player2Move).to.equal(2);
+      expect(game.player1Commitment).to.equal(commitment1);
+      expect(game.player2Commitment).to.equal(commitment2);
+      expect(game.state).to.equal(2); // REVEALED
     });
 
-    it("Should revert if game is not in playing state", async function () {
-      await contract.connect(player1).makeMove(0, 1);
-      await contract.connect(player2).makeMove(0, 2);
+    it("Should revert if game is not in committed state", async function () {
+      // Create a new game and try to commit before player2 joins
+      await contract.connect(player1).createGame(MIN_BET, { value: MIN_BET });
+      const gameId = (await contract.gameCount()) - 1n;
 
-      await expect(contract.connect(player1).makeMove(0, 1)).to.be.revertedWith("Game not in progress");
+      // Verify game is in WAITING state
+      const game = await contract.getGame(gameId);
+      expect(game.state).to.equal(0); // WAITING
+
+      const salt = ethers.randomBytes(32);
+      const commitment = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [1, salt, player1.address]),
+      );
+
+      // Try to commit in WAITING state - should revert
+      await expect(contract.connect(player1).commitMove(gameId, commitment)).to.be.revertedWith(
+        "Game not in commit phase",
+      );
     });
 
-    it("Should revert if player tries to move twice", async function () {
-      await contract.connect(player1).makeMove(0, 1);
-      await expect(contract.connect(player1).makeMove(0, 2)).to.be.revertedWith("Not your turn or already moved");
+    it("Should revert if player tries to commit twice", async function () {
+      const salt = ethers.randomBytes(32);
+      const commitment = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [1, salt, player1.address]),
+      );
+      await contract.connect(player1).commitMove(0, commitment);
+      await expect(contract.connect(player1).commitMove(0, commitment)).to.be.revertedWith(
+        "Not your turn or already committed",
+      );
+    });
+  });
+
+  describe("Revealing Moves", function () {
+    beforeEach(async function () {
+      await contract.connect(player1).createGame(MIN_BET, { value: MIN_BET });
+      await contract.connect(player2).joinGame(0, { value: MIN_BET });
     });
 
-    it("Should determine winner correctly", async function () {
-      // Player 1: ROCK, Player 2: SCISSORS -> Player 1 wins
-      await contract.connect(player1).makeMove(0, 1);
-      await contract.connect(player2).makeMove(0, 3);
+    it("Should allow players to reveal moves", async function () {
+      // Player 1 commits ROCK
+      const salt1 = ethers.randomBytes(32);
+      const commitment1 = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [1, salt1, player1.address]),
+      );
+      await contract.connect(player1).commitMove(0, commitment1);
+
+      // Player 2 commits PAPER
+      const salt2 = ethers.randomBytes(32);
+      const commitment2 = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [2, salt2, player2.address]),
+      );
+      await contract.connect(player2).commitMove(0, commitment2);
+
+      // Reveal moves
+      await contract.connect(player1).revealMove(0, 1, salt1);
+      await contract.connect(player2).revealMove(0, 2, salt2);
 
       const game = await contract.getGame(0);
-      expect(game.state).to.equal(2); // COMPLETED
-      expect(game.result).to.equal(1); // PLAYER1_WIN
+      expect(game.player1Move).to.equal(1); // ROCK
+      expect(game.player2Move).to.equal(2); // PAPER
+      expect(game.state).to.equal(3); // COMPLETED
+      expect(game.result).to.equal(2); // PLAYER2_WIN
     });
 
-    it("Should handle draws correctly", async function () {
-      // Both players play ROCK -> Draw
-      await contract.connect(player1).makeMove(0, 1);
-      await contract.connect(player2).makeMove(0, 1);
+    it("Should revert if game is not in revealed state", async function () {
+      const salt = ethers.randomBytes(32);
+      await expect(contract.connect(player1).revealMove(0, 1, salt)).to.be.revertedWith("Game not in reveal phase");
+    });
 
-      const game = await contract.getGame(0);
-      expect(game.state).to.equal(2); // COMPLETED
-      expect(game.result).to.equal(3); // DRAW
+    it("Should revert if commitment is invalid", async function () {
+      // Player 1 commits ROCK
+      const salt1 = ethers.randomBytes(32);
+      const commitment1 = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [1, salt1, player1.address]),
+      );
+      await contract.connect(player1).commitMove(0, commitment1);
+
+      // Player 2 commits PAPER
+      const salt2 = ethers.randomBytes(32);
+      const commitment2 = ethers.keccak256(
+        ethers.solidityPacked(["uint8", "bytes32", "address"], [2, salt2, player2.address]),
+      );
+      await contract.connect(player2).commitMove(0, commitment2);
+
+      // Try to reveal with wrong salt
+      await expect(contract.connect(player1).revealMove(0, 1, ethers.randomBytes(32))).to.be.revertedWith(
+        "Invalid commitment",
+      );
     });
   });
 
@@ -141,8 +213,23 @@ describe("YourContract", function () {
         await contract.connect(player1).createGame(MIN_BET, { value: MIN_BET });
         await contract.connect(player2).joinGame((await contract.gameCount()) - 1n, { value: MIN_BET });
 
-        await contract.connect(player1).makeMove((await contract.gameCount()) - 1n, testCase.p1);
-        await contract.connect(player2).makeMove((await contract.gameCount()) - 1n, testCase.p2);
+        // Player 1 commits and reveals
+        const salt1 = ethers.randomBytes(32);
+        const commitment1 = ethers.keccak256(
+          ethers.solidityPacked(["uint8", "bytes32", "address"], [testCase.p1, salt1, player1.address]),
+        );
+        await contract.connect(player1).commitMove((await contract.gameCount()) - 1n, commitment1);
+
+        // Player 2 commits and reveals
+        const salt2 = ethers.randomBytes(32);
+        const commitment2 = ethers.keccak256(
+          ethers.solidityPacked(["uint8", "bytes32", "address"], [testCase.p2, salt2, player2.address]),
+        );
+        await contract.connect(player2).commitMove((await contract.gameCount()) - 1n, commitment2);
+
+        // Reveal moves
+        await contract.connect(player1).revealMove((await contract.gameCount()) - 1n, testCase.p1, salt1);
+        await contract.connect(player2).revealMove((await contract.gameCount()) - 1n, testCase.p2, salt2);
 
         const game = await contract.getGame((await contract.gameCount()) - 1n);
         expect(game.result).to.equal(testCase.result);

@@ -7,7 +7,7 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 const deployedContracts = {
   31337: {
     YourContract: {
-      address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      address: "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
       abi: [
         {
           anonymous: false,
@@ -19,10 +19,16 @@ const deployedContracts = {
               type: "uint256",
             },
             {
+              indexed: true,
+              internalType: "address",
+              name: "winner",
+              type: "address",
+            },
+            {
               indexed: false,
-              internalType: "enum YourContract.GameResult",
-              name: "result",
-              type: "uint8",
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
             },
           ],
           name: "GameCompleted",
@@ -87,6 +93,25 @@ const deployedContracts = {
               name: "player",
               type: "address",
             },
+          ],
+          name: "MoveCommitted",
+          type: "event",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "player",
+              type: "address",
+            },
             {
               indexed: false,
               internalType: "enum YourContract.Move",
@@ -94,7 +119,7 @@ const deployedContracts = {
               type: "uint8",
             },
           ],
-          name: "MoveMade",
+          name: "MoveRevealed",
           type: "event",
         },
         {
@@ -108,6 +133,24 @@ const deployedContracts = {
             },
           ],
           stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "gameId",
+              type: "uint256",
+            },
+            {
+              internalType: "bytes32",
+              name: "commitment",
+              type: "bytes32",
+            },
+          ],
+          name: "commitMove",
+          outputs: [],
+          stateMutability: "nonpayable",
           type: "function",
         },
         {
@@ -162,6 +205,16 @@ const deployedContracts = {
               type: "uint8",
             },
             {
+              internalType: "bytes32",
+              name: "player1Commitment",
+              type: "bytes32",
+            },
+            {
+              internalType: "bytes32",
+              name: "player2Commitment",
+              type: "bytes32",
+            },
+            {
               internalType: "enum YourContract.Move",
               name: "player1Move",
               type: "uint8",
@@ -209,6 +262,16 @@ const deployedContracts = {
               internalType: "enum YourContract.GameState",
               name: "state",
               type: "uint8",
+            },
+            {
+              internalType: "bytes32",
+              name: "player1Commitment",
+              type: "bytes32",
+            },
+            {
+              internalType: "bytes32",
+              name: "player2Commitment",
+              type: "bytes32",
             },
             {
               internalType: "enum YourContract.Move",
@@ -259,8 +322,13 @@ const deployedContracts = {
               name: "move",
               type: "uint8",
             },
+            {
+              internalType: "bytes32",
+              name: "salt",
+              type: "bytes32",
+            },
           ],
-          name: "makeMove",
+          name: "revealMove",
           outputs: [],
           stateMutability: "nonpayable",
           type: "function",
